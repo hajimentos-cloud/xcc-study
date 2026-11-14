@@ -379,6 +379,27 @@
     font-size: 0.75rem; line-height: 1.7; text-align: left;
   }
   .footer-note strong { display: block; margin-bottom: 2px; }
+  /* ログイン・新規登録 */
+  [hidden] { display: none !important; }
+  .auth-card { margin-top: 16px; background: rgba(255, 255, 255, 0.92); color: #1f2d3d; border-radius: 12px; padding: 20px 16px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }
+  .auth-card h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  .auth-card input[type="email"], .auth-card input[type="password"] {
+    display: block; width: 100%; font-size: 1rem; padding: 10px; margin-bottom: 14px;
+    border: 1px solid #b8c6d4; border-radius: 8px; background: #fff;
+  }
+  .auth-btns { display: flex; gap: 8px; }
+  .auth-btns button {
+    flex: 1; font: inherit; font-size: 1rem; padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid #1971c2; background: #fff; color: #1971c2; font-weight: bold;
+  }
+  .auth-btns button.primary { background: #1971c2; color: #fff; }
+  .auth-btns button:disabled { opacity: 0.5; cursor: default; }
+  .userbar {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 12px;
+    font-size: 0.8rem; color: #1f2d3d; background: rgba(255, 255, 255, 0.88); border-radius: 12px;
+  }
+  .userbar .u-mail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .userbar button { flex: none; font: inherit; font-size: 0.8rem; padding: 5px 12px; border-radius: 999px; cursor: pointer; border: 1px solid #b8c6d4; background: #fff; color: #1f2d3d; }
 </style>
 </head>
 <body data-weather="default">
@@ -387,6 +408,22 @@
 <div id="fx" aria-hidden="true"></div>
 <main>
   <h1>お天気チェック</h1>
+  <section class="auth-card" id="authView" hidden>
+    <h2>ログイン・新規登録</h2>
+    <form id="authForm" novalidate>
+      <label for="authEmail">メールアドレス</label>
+      <input id="authEmail" type="email" autocomplete="email" inputmode="email" required>
+      <label for="authPass">パスワード（6文字以上）</label>
+      <input id="authPass" type="password" autocomplete="current-password" minlength="6" required>
+      <div class="auth-btns">
+        <button type="submit" id="loginBtn" class="primary">ログイン</button>
+        <button type="button" id="signupBtn">新規登録</button>
+      </div>
+    </form>
+    <p class="zip-msg" id="authMsg" aria-live="polite"></p>
+  </section>
+  <div id="appView" hidden>
+  <div class="userbar"><span class="u-mail" id="userMail"></span><button type="button" id="logoutBtn">ログアウト</button></div>
   <p class="greeting" id="greeting"></p>
   <div class="settings-wrap">
     <button id="settingsToggle" class="settings-bar" type="button" aria-expanded="true" aria-controls="settingsPanel">
@@ -458,9 +495,10 @@
         <h2>📌 お気に入りの地点</h2>
         <p class="zip-msg" id="favMsg"></p>
         <div class="fav-list" id="favList"></div>
-        <p class="note">今日の天気です。地点は Supabase に保存しているので、ページを開き直しても残ります。</p>
+        <p class="note">今日の天気です。あなたの地点だけが Supabase に保存されていて、ページを開き直しても残ります。</p>
       </div>
     </section>
+  </div>
   </div>
 </main>
 <footer>
@@ -2236,10 +2274,85 @@
     if (hiddenAt && Date.now() - hiddenAt > 15 * 60 * 1000) location.reload();
     hiddenAt = 0;
   });
-  update();
-  updateWeek();
-  updateHourly();
-  loadFavs();
+
+  // ---- ログイン・新規登録（Supabase Auth のメール＋パスワード。パスワードは自分では保存しない）----
+  const authView = document.getElementById("authView");
+  const appView = document.getElementById("appView");
+  const authForm = document.getElementById("authForm");
+  const authEmail = document.getElementById("authEmail");
+  const authPass = document.getElementById("authPass");
+  const authMsg = document.getElementById("authMsg");
+  const loginBtn = document.getElementById("loginBtn");
+  const signupBtn = document.getElementById("signupBtn");
+  const userMail = document.getElementById("userMail");
+  const logoutBtn = document.getElementById("logoutBtn");
+  let appStarted = false;
+  let shownUserId = null;
+
+  function authError(err) {
+    const m = String((err && err.message) || "");
+    if (/invalid login credentials/i.test(m)) return "メールアドレスかパスワードが違います。";
+    if (/email not confirmed/i.test(m)) return "メールアドレスの確認が済んでいません。届いたメールのリンクを開いてください。";
+    if (/already registered|already been registered/i.test(m)) return "このメールアドレスは登録済みです。ログインしてください。";
+    if (/password/i.test(m)) return "パスワードは6文字以上にしてください。";
+    if (/valid email|invalid.*email/i.test(m)) return "メールアドレスの形式を確認してください。";
+    if (/rate limit/i.test(m)) return "短時間に回数が多すぎます。しばらくしてからお試しください。";
+    return "うまくいきませんでした。もう一度お試しください。";
+  }
+  function showSession(session) {
+    if (session && session.user) {
+      userMail.textContent = session.user.email || "";
+      authView.hidden = true;
+      appView.hidden = false;
+      authPass.value = "";
+      if (shownUserId !== session.user.id) {
+        shownUserId = session.user.id;
+        if (!appStarted) { appStarted = true; update(); updateWeek(); updateHourly(); }
+        loadFavs();
+      }
+    } else {
+      shownUserId = null;
+      favs.length = 0;
+      renderFavs();
+      appView.hidden = true;
+      authView.hidden = false;
+    }
+  }
+  if (!sb) {
+    authView.hidden = false;
+    authMsg.textContent = "認証サービス（Supabase）に接続できませんでした。";
+    authMsg.className = "zip-msg err";
+  } else {
+    sb.auth.onAuthStateChange(function (event, session) {
+      // コールバック内で await せず、画面の切り替えだけ行う
+      setTimeout(function () { showSession(session); }, 0);
+    });
+    sb.auth.getSession().then(function (r) { showSession(r.data && r.data.session); });
+    async function doAuth(kind) {
+      const email = authEmail.value.trim();
+      const password = authPass.value;
+      if (!email || !password) { authMsg.className = "zip-msg err"; authMsg.textContent = "メールアドレスとパスワードを入力してください。"; return; }
+      loginBtn.disabled = signupBtn.disabled = true;
+      authMsg.className = "zip-msg";
+      authMsg.textContent = kind === "signup" ? "登録中…" : "ログイン中…";
+      const res = kind === "signup"
+        ? await sb.auth.signUp({ email: email, password: password })
+        : await sb.auth.signInWithPassword({ email: email, password: password });
+      loginBtn.disabled = signupBtn.disabled = false;
+      if (res.error) { authMsg.className = "zip-msg err"; authMsg.textContent = authError(res.error); return; }
+      if (kind === "signup" && !res.data.session) {
+        authMsg.textContent = "確認メールを送りました。メールのリンクを開いてから、ログインしてください。";
+      } else {
+        authMsg.textContent = "";
+      }
+    }
+    authForm.addEventListener("submit", function (e) { e.preventDefault(); doAuth("login"); });
+    signupBtn.addEventListener("click", function () { doAuth("signup"); });
+    logoutBtn.addEventListener("click", async function () {
+      await sb.auth.signOut();
+      authMsg.textContent = "";
+    });
+  }
 </script>
 </body>
 </html>
