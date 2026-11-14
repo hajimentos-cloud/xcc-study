@@ -400,6 +400,14 @@
   }
   .userbar .u-mail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .userbar button { flex: none; font: inherit; font-size: 0.8rem; padding: 5px 12px; border-radius: 999px; cursor: pointer; border: 1px solid #b8c6d4; background: #fff; color: #1f2d3d; }
+  /* 表示名 */
+  .auth-card input[type="text"] {
+    display: block; width: 100%; font-size: 1rem; padding: 10px; margin-bottom: 14px;
+    border: 1px solid #b8c6d4; border-radius: 8px; background: #fff;
+  }
+  .name-edit { margin: -4px 0 12px; padding: 10px 12px; background: rgba(255, 255, 255, 0.88); border-radius: 12px; color: #1f2d3d; font-size: 0.8rem; }
+  .name-edit input[type="text"] { display: block; width: 100%; font-size: 1rem; padding: 8px 10px; margin: 4px 0 8px; border: 1px solid #b8c6d4; border-radius: 8px; background: #fff; }
+  .name-edit .auth-btns button { padding: 8px 12px; font-size: 0.9rem; }
 </style>
 </head>
 <body data-weather="default">
@@ -415,6 +423,8 @@
       <input id="authEmail" type="email" autocomplete="email" inputmode="email" required>
       <label for="authPass">パスワード（6文字以上）</label>
       <input id="authPass" type="password" autocomplete="current-password" minlength="6" required>
+      <label for="authName">表示名（ニックネーム。新規登録のときだけ。あとから変えられます）</label>
+      <input id="authName" type="text" autocomplete="nickname" maxlength="20">
       <div class="auth-btns">
         <button type="submit" id="loginBtn" class="primary">ログイン</button>
         <button type="button" id="signupBtn">新規登録</button>
@@ -423,7 +433,16 @@
     <p class="zip-msg" id="authMsg" aria-live="polite"></p>
   </section>
   <div id="appView" hidden>
-  <div class="userbar"><span class="u-mail" id="userMail"></span><button type="button" id="logoutBtn">ログアウト</button></div>
+  <div class="userbar"><span class="u-mail" id="userMail"></span><button type="button" id="nameEditBtn">表示名</button><button type="button" id="logoutBtn">ログアウト</button></div>
+  <form class="name-edit" id="nameForm" novalidate hidden>
+    <label for="nameInput">表示名（ニックネーム。20文字まで。空にすると消えます）</label>
+    <input id="nameInput" type="text" autocomplete="nickname" maxlength="20">
+    <div class="auth-btns">
+      <button type="submit" id="nameSaveBtn" class="primary">保存</button>
+      <button type="button" id="nameCancelBtn">キャンセル</button>
+    </div>
+    <p class="zip-msg" id="nameMsg" aria-live="polite"></p>
+  </form>
   <p class="greeting" id="greeting"></p>
   <div class="settings-wrap">
     <button id="settingsToggle" class="settings-bar" type="button" aria-expanded="true" aria-controls="settingsPanel">
@@ -492,7 +511,7 @@
     </section>
     <section class="sec" data-id="favorites">
       <div class="card" id="favorites">
-        <h2>📌 お気に入りの地点</h2>
+        <h2 id="favTitle">📌 あなたのお気に入り</h2>
         <p class="zip-msg" id="favMsg"></p>
         <div class="fav-list" id="favList"></div>
         <p class="note">今日の天気です。あなたの地点だけが Supabase に保存されていて、ページを開き直しても残ります。</p>
@@ -2286,8 +2305,26 @@
   const signupBtn = document.getElementById("signupBtn");
   const userMail = document.getElementById("userMail");
   const logoutBtn = document.getElementById("logoutBtn");
+  const authName = document.getElementById("authName");
+  const nameEditBtn = document.getElementById("nameEditBtn");
+  const nameForm = document.getElementById("nameForm");
+  const nameInput = document.getElementById("nameInput");
+  const nameSaveBtn = document.getElementById("nameSaveBtn");
+  const nameCancelBtn = document.getElementById("nameCancelBtn");
+  const nameMsg = document.getElementById("nameMsg");
+  const favTitle = document.getElementById("favTitle");
   let appStarted = false;
   let shownUserId = null;
+  let currentName = "";
+
+  // 表示名は Supabase の user_metadata.display_name に保存する（表示だけに使う。誰の行かは auth.uid() で決まる）
+  function cleanName(v) { return String(v || "").trim().slice(0, 20); }
+  function applyName(user) {
+    const meta = (user && user.user_metadata) || {};
+    currentName = cleanName(meta.display_name);
+    // textContent で入れるので、記号が入っても安全
+    favTitle.textContent = currentName ? "📌 " + currentName + "さんのお気に入り" : "📌 あなたのお気に入り";
+  }
 
   function authError(err) {
     const m = String((err && err.message) || "");
@@ -2302,9 +2339,11 @@
   function showSession(session) {
     if (session && session.user) {
       userMail.textContent = session.user.email || "";
+      applyName(session.user);
       authView.hidden = true;
       appView.hidden = false;
       authPass.value = "";
+      authName.value = "";
       if (shownUserId !== session.user.id) {
         shownUserId = session.user.id;
         if (!appStarted) { appStarted = true; update(); updateWeek(); updateHourly(); }
@@ -2312,6 +2351,8 @@
       }
     } else {
       shownUserId = null;
+      applyName(null);
+      nameForm.hidden = true;
       favs.length = 0;
       renderFavs();
       appView.hidden = true;
@@ -2336,7 +2377,7 @@
       authMsg.className = "zip-msg";
       authMsg.textContent = kind === "signup" ? "登録中…" : "ログイン中…";
       const res = kind === "signup"
-        ? await sb.auth.signUp({ email: email, password: password })
+        ? await sb.auth.signUp({ email: email, password: password, options: { data: { display_name: cleanName(authName.value) } } })
         : await sb.auth.signInWithPassword({ email: email, password: password });
       loginBtn.disabled = signupBtn.disabled = false;
       if (res.error) { authMsg.className = "zip-msg err"; authMsg.textContent = authError(res.error); return; }
@@ -2351,6 +2392,23 @@
     logoutBtn.addEventListener("click", async function () {
       await sb.auth.signOut();
       authMsg.textContent = "";
+    });
+    // 登録済みのアカウントにも、あとから表示名を付ける・変える
+    nameEditBtn.addEventListener("click", function () {
+      nameForm.hidden = !nameForm.hidden;
+      if (!nameForm.hidden) { nameInput.value = currentName; nameMsg.textContent = ""; nameInput.focus(); }
+    });
+    nameCancelBtn.addEventListener("click", function () { nameForm.hidden = true; });
+    nameForm.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      nameSaveBtn.disabled = true;
+      nameMsg.className = "zip-msg";
+      nameMsg.textContent = "保存中…";
+      const res = await sb.auth.updateUser({ data: { display_name: cleanName(nameInput.value) } });
+      nameSaveBtn.disabled = false;
+      if (res.error) { nameMsg.className = "zip-msg err"; nameMsg.textContent = "保存できませんでした。もう一度お試しください。"; return; }
+      applyName(res.data.user);
+      nameForm.hidden = true;
     });
   }
 </script>
