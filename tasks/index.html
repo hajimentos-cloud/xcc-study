@@ -44,16 +44,55 @@
   select.status[data-v="まだ"] { background: #f1f3f5; border-color: #adb5bd; }
   select.status:disabled { opacity: 0.6; }
   footer { margin-top: 24px; font-size: 0.75rem; color: #868e96; text-align: center; }
+  /* ログイン・新規登録 */
+  [hidden] { display: none !important; }
+  .auth-card { margin-top: 16px; background: #fff; border-radius: 12px; padding: 20px 16px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }
+  .auth-card h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  .auth-card label { font-size: 0.85rem; color: #5a6b7c; }
+  .auth-card input[type="email"], .auth-card input[type="password"] {
+    display: block; width: 100%; font-size: 1rem; padding: 10px; margin: 4px 0 14px;
+    border: 1px solid #b8c6d4; border-radius: 8px; background: #fff;
+  }
+  .auth-btns { display: flex; gap: 8px; }
+  .auth-btns button {
+    flex: 1; font: inherit; font-size: 1rem; padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid #1971c2; background: #fff; color: #1971c2; font-weight: bold;
+  }
+  .auth-btns button.primary { background: #1971c2; color: #fff; }
+  .auth-btns button:disabled { opacity: 0.5; cursor: default; }
+  .userbar {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 12px;
+    font-size: 0.8rem; background: rgba(255, 255, 255, 0.88); border-radius: 12px;
+  }
+  .userbar .u-mail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .userbar button { flex: none; font: inherit; font-size: 0.8rem; padding: 5px 12px; border-radius: 999px; cursor: pointer; border: 1px solid #b8c6d4; background: #fff; color: #1f2d3d; }
 </style>
 </head>
 <body>
 <main>
   <h1>XCC 課題の状況</h1>
-  <p class="lead">第1回〜第11回。状況はプルダウンで変えると、そのまま保存されます。</p>
-  <div class="summary" id="summary"></div>
-  <p class="msg" id="msg" aria-live="polite">読み込み中…</p>
-  <div id="list"></div>
-  <footer>データの保存先: Supabase（練習用・誰でも読み書きできる設定）</footer>
+  <section class="auth-card" id="authView" hidden>
+    <h2>ログイン・新規登録</h2>
+    <form id="authForm" novalidate>
+      <label for="authEmail">メールアドレス</label>
+      <input id="authEmail" type="email" autocomplete="email" inputmode="email" required>
+      <label for="authPass">パスワード（6文字以上）</label>
+      <input id="authPass" type="password" autocomplete="current-password" minlength="6" required>
+      <div class="auth-btns">
+        <button type="submit" id="loginBtn" class="primary">ログイン</button>
+        <button type="button" id="signupBtn">新規登録</button>
+      </div>
+    </form>
+    <p class="msg" id="authMsg" aria-live="polite"></p>
+  </section>
+  <div id="appView" hidden>
+    <div class="userbar"><span class="u-mail" id="userMail"></span><button type="button" id="logoutBtn">ログアウト</button></div>
+    <p class="lead">第1回〜第11回。状況はプルダウンで変えると、そのまま保存されます。</p>
+    <div class="summary" id="summary"></div>
+    <p class="msg" id="msg" aria-live="polite">読み込み中…</p>
+    <div id="list"></div>
+  </div>
+  <footer>データの保存先: Supabase（ログインした本人の分だけ読み書きできます）</footer>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -66,6 +105,45 @@
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
     : null;
 
+  // 新しく登録した人の分として作る課題の一覧（第◯回, 番号, タイトル）。状況は「まだ」、メモなしで作る。
+  // 課題が増えたら、ここにも足す。
+  const TEMPLATE = [
+    [1, "①", "開発環境の構築(オンボーディング一覧を完了し、バージョン確認の出力を投稿する)"],
+    [1, "②", "自己紹介シートを Notion に作成・更新する"],
+    [1, "③", "Slack のプロフィール(氏名・表示名・顔写真)を設定する"],
+    [2, "①", "議事録の完成版を投稿する"],
+    [2, "②", "Git / GitHub の動画を1本見て、感想を投稿する"],
+    [3, "①", "自分の仕事のことを書いたファイルを、リポジトリに上げる"],
+    [3, "②", "CLAUDE.md と README.md を調べて、自分のリポジトリに作る"],
+    [3, "③", "GitHub の2段階認証(2FA)を設定する"],
+    [3, "④", "動画を1本見て、分かりづらかったところを投稿する"],
+    [4, "①", "自分のURLを作成する"],
+    [4, "②", "CLAUDE.md を1行でも育てる"],
+    [4, "③", "ここまでに手に入れた武器をどう使うか、問いを1つ置く"],
+    [4, "④", "【来週の予習】プルリクエスト/レビューの動画"],
+    [5, "①", "自分のリポジトリの育て方を決めて、フォルダ構成を作る"],
+    [5, "②", "先週の課題スレッドから誰かの投稿を見て、フィードバックを送る"],
+    [6, "①", "調べたことを図解にして、インターネットに公開する(今週の本命)"],
+    [6, "②", "MCPの動画を見て、分からなかったところを投稿する"],
+    [7, "①", "AIに自分のデータを読ませて、形にする(人生の変遷の図解 / サブスクの棚卸し)"],
+    [7, "②", "MCP・APIで自分の業務をどう効率化できるか、AIと壁打ちする"],
+    [8, "①", "cc と打てば Claude Code が起動するように設定する"],
+    [8, "②", "12/5 の発表会の日に Claude Code で何ができるようになっていたいかを設計し、いまとのギャップをレポートにする"],
+    [8, "③", "アプリ版と CLI 版のどちらが使いやすかったかを報告する"],
+    [9, "①", "天気ページを PR で1か所直して、公開ページが変わるのを確かめる"],
+    [9, "②", "マージする前に、Claude に PR をレビューさせる"],
+    [9, "③", "自己紹介ページを Vercel で公開し直し、SNS などをつないでアップデートする"],
+    [10, "①", "自分の業務を1つ工程に分けて、AI を置く場所を決める"],
+    [10, "②", "①で決めた場所を1本スキルにして、実際の仕事で1回使う"],
+    [10, "③", "使って感じた違和感を1つ見つけて、スキルか CLAUDE.md を直す"],
+    [10, "④", "①をもとに、自分のハーネスを作りきる"],
+    [10, "⑤", "レビューさせる部品を作る"],
+    [10, "⑥", "確認させる部品を作る"],
+    [11, "①", "天気ページのお気に入りの地点を Supabase に保存して、公開する"],
+    [11, "②", "自分の課題の状況を表にして、表示するページを作る"],
+    [11, "③", "自分の業務で溜めたいデータを1つ選び、表にする"],
+    [11, "④", "課題の状況のページにログインを付けて、自分だけが見られるようにする"]
+  ];
   const STATUSES = ["終わった", "途中", "まだ"];
   const listEl = document.getElementById("list");
   const msgEl = document.getElementById("msg");
@@ -98,11 +176,28 @@
     }).join("");
   }
 
+  function fetchRows() {
+    return sb.from("xcc_task_status").select("id,session_no,task_no,title,status,memo")
+      .order("session_no", { ascending: true }).order("id", { ascending: true });
+  }
+
   async function load() {
     if (!sb) { msgEl.className = "msg error"; msgEl.textContent = "保存先（Supabase）に接続できませんでした。"; return; }
-    const res = await sb.from("xcc_task_status").select("id,session_no,task_no,title,status,memo")
-      .order("session_no", { ascending: true }).order("id", { ascending: true });
+    msgEl.className = "msg";
+    msgEl.textContent = "読み込み中…";
+    let res = await fetchRows();
     if (res.error) { msgEl.className = "msg error"; msgEl.textContent = "読み込めませんでした。もう一度お試しください。"; return; }
+    if (res.data.length === 0) {
+      // 初めてログインした人: 課題の行を、その人の分として作る（user_id は DB 側が本人の id で入れる）
+      msgEl.textContent = "あなたの課題の表を作っています…";
+      const ins = await sb.from("xcc_task_status").upsert(
+        TEMPLATE.map(function (t) { return { session_no: t[0], task_no: t[1], title: t[2] }; }),
+        { onConflict: "user_id,session_no,task_no", ignoreDuplicates: true }
+      );
+      if (ins.error) { msgEl.className = "msg error"; msgEl.textContent = "表を作れませんでした。もう一度お試しください。"; return; }
+      res = await fetchRows();
+      if (res.error) { msgEl.className = "msg error"; msgEl.textContent = "読み込めませんでした。もう一度お試しください。"; return; }
+    }
     rows = res.data;
     msgEl.className = "msg";
     msgEl.textContent = rows.length ? "" : "まだ行がありません。";
@@ -131,7 +226,83 @@
     sel.disabled = false;
   });
 
-  load();
+  // ---- ログイン・新規登録（Supabase Auth のメール＋パスワード。パスワードは自分では保存しない）----
+  const authView = document.getElementById("authView");
+  const appView = document.getElementById("appView");
+  const authForm = document.getElementById("authForm");
+  const authEmail = document.getElementById("authEmail");
+  const authPass = document.getElementById("authPass");
+  const authMsg = document.getElementById("authMsg");
+  const loginBtn = document.getElementById("loginBtn");
+  const signupBtn = document.getElementById("signupBtn");
+  const userMail = document.getElementById("userMail");
+  const logoutBtn = document.getElementById("logoutBtn");
+  let shownUserId = null;
+
+  function authError(err) {
+    const m = String((err && err.message) || "");
+    if (/invalid login credentials/i.test(m)) return "メールアドレスかパスワードが違います。";
+    if (/email not confirmed/i.test(m)) return "メールアドレスの確認が済んでいません。届いたメールのリンクを開いてください。";
+    if (/already registered|already been registered/i.test(m)) return "このメールアドレスは登録済みです。ログインしてください。";
+    if (/password/i.test(m)) return "パスワードは6文字以上にしてください。";
+    if (/valid email|invalid.*email/i.test(m)) return "メールアドレスの形式を確認してください。";
+    if (/rate limit/i.test(m)) return "短時間に回数が多すぎます。しばらくしてからお試しください。";
+    return "うまくいきませんでした。もう一度お試しください。";
+  }
+  function showSession(session) {
+    if (session && session.user) {
+      userMail.textContent = session.user.email || "";
+      authView.hidden = true;
+      appView.hidden = false;
+      authPass.value = "";
+      if (shownUserId !== session.user.id) {
+        shownUserId = session.user.id;
+        load();
+      }
+    } else {
+      shownUserId = null;
+      rows = [];
+      listEl.innerHTML = "";
+      summaryEl.innerHTML = "";
+      appView.hidden = true;
+      authView.hidden = false;
+    }
+  }
+  if (!sb) {
+    authView.hidden = false;
+    authMsg.className = "msg error";
+    authMsg.textContent = "認証サービス（Supabase）に接続できませんでした。";
+  } else {
+    sb.auth.onAuthStateChange(function (event, session) {
+      // コールバック内で await せず、画面の切り替えだけ行う
+      setTimeout(function () { showSession(session); }, 0);
+    });
+    sb.auth.getSession().then(function (r) { showSession(r.data && r.data.session); });
+    async function doAuth(kind) {
+      const email = authEmail.value.trim();
+      const password = authPass.value;
+      if (!email || !password) { authMsg.className = "msg error"; authMsg.textContent = "メールアドレスとパスワードを入力してください。"; return; }
+      loginBtn.disabled = signupBtn.disabled = true;
+      authMsg.className = "msg";
+      authMsg.textContent = kind === "signup" ? "登録中…" : "ログイン中…";
+      const res = kind === "signup"
+        ? await sb.auth.signUp({ email: email, password: password })
+        : await sb.auth.signInWithPassword({ email: email, password: password });
+      loginBtn.disabled = signupBtn.disabled = false;
+      if (res.error) { authMsg.className = "msg error"; authMsg.textContent = authError(res.error); return; }
+      if (kind === "signup" && !res.data.session) {
+        authMsg.textContent = "確認メールを送りました。メールのリンクを開いてから、ログインしてください。";
+      } else {
+        authMsg.textContent = "";
+      }
+    }
+    authForm.addEventListener("submit", function (e) { e.preventDefault(); doAuth("login"); });
+    signupBtn.addEventListener("click", function () { doAuth("signup"); });
+    logoutBtn.addEventListener("click", async function () {
+      await sb.auth.signOut();
+      authMsg.textContent = "";
+    });
+  }
 </script>
 </body>
 </html>
