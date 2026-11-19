@@ -288,6 +288,8 @@
   .fav-card .fav-wx { margin: 0; }
   .fav-card .fav-temp { margin: 2px 0 8px; font-size: 0.9rem; }
   .fav-del { font-size: 0.8rem; padding: 4px 10px; border-radius: 8px; cursor: pointer; border: 1px solid #c92a2a; background: #fff; color: #c92a2a; }
+  .fav-filter { display: block; width: 100%; font-size: 1rem; padding: 10px; margin: 0 0 6px; border: 1px solid #b8c6d4; border-radius: 8px; background: #fff; color: #1f2d3d; }
+  .fav-empty { grid-column: 1 / -1; margin: 0; color: #5a6b7c; font-size: 0.9rem; }
   .zip-msg { font-size: 0.8rem; color: #5a6b7c; margin: 0 0 14px; min-height: 1.2em; }
   .zip-msg.err { color: #c92a2a; }
   .hours { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
@@ -513,6 +515,8 @@
       <div class="card" id="favorites">
         <h2 id="favTitle">📌 あなたのお気に入り</h2>
         <p class="zip-msg" id="favMsg"></p>
+        <input id="favFilter" class="fav-filter" type="search" placeholder="地名で絞り込む" autocomplete="off" aria-label="お気に入りを地名で絞り込む">
+        <p class="zip-msg" id="favCount" aria-live="polite"></p>
         <div class="fav-list" id="favList"></div>
         <p class="note">今日の天気です。あなたの地点だけが Supabase に保存されていて、ページを開き直しても残ります。</p>
       </div>
@@ -2217,8 +2221,20 @@
   const favListEl = document.getElementById("favList");
   const favMsgEl = document.getElementById("favMsg");
 
+  const favFilterEl = document.getElementById("favFilter");
+  const favCountEl = document.getElementById("favCount");
+  // 絞り込み用: 大文字小文字・全角半角のちがいを無視して比べる
+  function normName(t) { return String(t).normalize("NFKC").toLowerCase(); }
+
   function renderFavs() {
-    favListEl.innerHTML = favs.map(function (f) {
+    const q = normName(favFilterEl.value.trim());
+    const shown = q ? favs.filter(function (f) { return normName(f.name).indexOf(q) !== -1; }) : favs;
+    favCountEl.textContent = (q && favs.length > 0) ? favs.length + "件中" + shown.length + "件" : "";
+    if (favs.length > 0 && shown.length === 0) {
+      favListEl.innerHTML = '<p class="fav-empty">見つかりません</p>';
+      return;
+    }
+    favListEl.innerHTML = shown.map(function (f) {
       const wx = (f.code === undefined)
         ? '<p class="fav-wx">天気を取得できませんでした</p>'
         : '<p class="fav-wx">' + weatherText(f.code) + '</p>'
@@ -2230,6 +2246,7 @@
         + '</div>';
     }).join("");
   }
+  favFilterEl.addEventListener("input", renderFavs);
   async function withWeather(row) {
     const f = { id: row.id, name: row.name, lat: row.latitude, lon: row.longitude };
     try {
@@ -2354,6 +2371,7 @@
       applyName(null);
       nameForm.hidden = true;
       favs.length = 0;
+      favFilterEl.value = "";
       renderFavs();
       appView.hidden = true;
       authView.hidden = false;
