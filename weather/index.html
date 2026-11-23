@@ -282,6 +282,10 @@
     border: 1px solid #1971c2; background: #fff; color: #1971c2;
   }
   .fav-btn:disabled { color: #9bb7d4; border-color: #9bb7d4; cursor: default; }
+  .rank-table { width: 100%; border-collapse: collapse; }
+  .rank-table th, .rank-table td { padding: 6px 8px; border-bottom: 1px solid #dbe4ee; text-align: left; overflow-wrap: anywhere; }
+  .rank-table th { font-size: 0.85rem; color: #5b6b7c; font-weight: normal; }
+  .rank-table .num { text-align: right; white-space: nowrap; }
   .fav-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .fav-card { border: 1px solid #dbe4ee; border-radius: 10px; padding: 10px 12px; background: #f8fbfe; color: #1f2d3d; }
   .fav-card .fav-name { font-weight: bold; margin: 0 0 4px; overflow-wrap: anywhere; }
@@ -519,6 +523,13 @@
         <p class="zip-msg" id="favCount" aria-live="polite"></p>
         <div class="fav-list" id="favList"></div>
         <p class="note">今日の天気です。あなたの地点だけが Supabase に保存されていて、ページを開き直しても残ります。</p>
+      </div>
+    </section>
+    <section class="sec" data-id="ranking">
+      <div class="card" id="ranking">
+        <h2>🏆 みんなのお気に入りランキング</h2>
+        <div id="rankBody"><p class="message">読み込み中…</p></div>
+        <p class="note">全員のお気に入りを地名ごとに数えた、上位5つです（件数は登録された数）。</p>
       </div>
     </section>
   </div>
@@ -2133,10 +2144,26 @@
   geoBtn.addEventListener("click", applyGeo);
   zipEl.addEventListener("keydown", function (e) { if (e.key === "Enter") applyZip(); });
 
+  // ---- みんなのお気に入りランキング（集計はサーバー側の api/ranking が行う）----
+  (function loadRanking() {
+    const body = document.getElementById("rankBody");
+    fetch("api/ranking")
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.ranking)) throw new Error("bad response");
+        if (!d.ranking.length) { body.innerHTML = '<p class="message">まだお気に入りがありません。</p>'; return; }
+        body.innerHTML = '<table class="rank-table"><thead><tr><th>順位</th><th>地点名</th><th class="num">件数</th></tr></thead><tbody>'
+          + d.ranking.map(function (x, i) {
+            return "<tr><td>" + (i + 1) + "</td><td>" + esc(x.name) + '</td><td class="num">' + esc(String(x.count)) + "</td></tr>";
+          }).join("") + "</tbody></table>";
+      })
+      .catch(function () { body.innerHTML = '<p class="error">ランキングを読み込めませんでした</p>'; });
+  })();
+
   // ---- セクションの並び替え（▲▼で動かす。並び順はブラウザに保存）----
   const ORDER_KEY = "weather-practice:order";
-  const DEFAULT_ORDER = ["result", "hourly", "insights", "outfit", "week", "favorites"];
-  const SEC_NAMES = { result: "🌤 選んだ日の天気", hourly: "🕒 時間ごとの天気", insights: "📌 選んだ日の詳細", outfit: "👕 おすすめの服装", week: "📅 1週間の予報", favorites: "📌 お気に入りの地点" };
+  const DEFAULT_ORDER = ["result", "hourly", "insights", "outfit", "week", "favorites", "ranking"];
+  const SEC_NAMES = { result: "🌤 選んだ日の天気", hourly: "🕒 時間ごとの天気", insights: "📌 選んだ日の詳細", outfit: "👕 おすすめの服装", week: "📅 1週間の予報", favorites: "📌 お気に入りの地点", ranking: "🏆 みんなのお気に入りランキング" };
   const sectionsEl = document.getElementById("sections");
   const editBtn = document.getElementById("editBtn");
   const resetOrderBtn = document.getElementById("resetOrderBtn");
